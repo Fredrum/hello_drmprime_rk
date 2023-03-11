@@ -55,6 +55,24 @@ static AVFilterContext *buffersink_ctx = NULL;
 static AVFilterContext *buffersrc_ctx = NULL;
 static AVFilterGraph *filter_graph = NULL;
 
+
+// fredway
+static AVBufferRef *hw_device_ctx = NULL;
+static int hw_decoder_initF(AVCodecContext *ctx, const enum AVHWDeviceType type)
+{
+    int err = 0;
+
+    if ((err = av_hwdevice_ctx_create(&hw_device_ctx, type,
+                                      NULL, NULL, 0)) < 0) {
+        fprintf(stderr, "Error in:  av_hwdevice_ctx_create()\n");
+        return err;
+    }
+    ctx->hw_device_ctx = av_buffer_ref(hw_device_ctx);
+
+    return err;
+}
+
+
 static int hw_decoder_init(AVCodecContext *ctx, const enum AVHWDeviceType type)
 {
     int err = 0;
@@ -406,26 +424,32 @@ loopy:
     video_stream = ret;
 
     if (decoder->id == AV_CODEC_ID_H264) {
-        if ((decoder = avcodec_find_decoder_by_name("h264_v4l2m2m")) == NULL) {
-            fprintf(stderr, "Cannot find the h264 v4l2m2m decoder\n");
+        if ((decoder = avcodec_find_decoder_by_name("h264_rkmpp")) == NULL) {
+            fprintf(stderr, "Cannot find the h264_rkmpp decoder\n");
             return -1;
         }
         hw_pix_fmt = AV_PIX_FMT_DRM_PRIME;
     }
     else {
-        for (i = 0;; i++) {
-            const AVCodecHWConfig *config = avcodec_get_hw_config(decoder, i);
-            if (!config) {
-                fprintf(stderr, "Decoder %s does not support device type %s.\n",
-                        decoder->name, av_hwdevice_get_type_name(type));
-                return -1;
-            }
-            if (config->methods & AV_CODEC_HW_CONFIG_METHOD_HW_DEVICE_CTX &&
-                config->device_type == type) {
-                hw_pix_fmt = config->pix_fmt;
-                break;
-            }
+        if ((decoder = avcodec_find_decoder_by_name("hevc_rkmpp")) == NULL) {
+            fprintf(stderr, "Cannot find the hevc_rkmpp decoder\n");
+            return -1;
         }
+        hw_pix_fmt = AV_PIX_FMT_DRM_PRIME;
+        
+        //~ for (i = 0;; i++) {
+            //~ const AVCodecHWConfig *config = avcodec_get_hw_config(decoder, i);
+            //~ if (!config) {
+                //~ fprintf(stderr, "Decoder %s does not support device type %s.\n",
+                        //~ decoder->name, av_hwdevice_get_type_name(type));
+                //~ return -1;
+            //~ }
+            //~ if (config->methods & AV_CODEC_HW_CONFIG_METHOD_HW_DEVICE_CTX &&
+                //~ config->device_type == type) {
+                //~ hw_pix_fmt = config->pix_fmt;
+                //~ break;
+            //~ }
+        //~ }
     }
 
     if (!(decoder_ctx = avcodec_alloc_context3(decoder)))
@@ -434,12 +458,27 @@ loopy:
     video = input_ctx->streams[video_stream];
     if (avcodec_parameters_to_context(decoder_ctx, video->codecpar) < 0)
         return -1;
+	
+	
+	// copy my way?
+    // OLD WAY decoder_ctx->get_format  = get_hw_format;
+    type = av_hwdevice_find_type_by_name(hwdev);
+	if(type == AV_HWDEVICE_TYPE_NONE)
+	{
+		printf("Hardware decoder \"%s\" not found", hwdev);
+		return 1;
+	}	else printf("drm hw decder seems to have been found!\n");
+	
+	// double checkit
+	if(type ==  AV_HWDEVICE_TYPE_DRM ) printf("AV_HWDEVICE_TYPE_DRM  (good)\n");
+    /////////////////
+    
 
-    decoder_ctx->get_format  = get_hw_format;
-
-    if (hw_decoder_init(decoder_ctx, type) < 0)
-        return -1;
-
+    if (hw_decoder_init(decoder_ctx, type) < 0){
+		printf("Error:  hw_decoder_init()\n");
+        //return -1;
+	}
+	
     decoder_ctx->thread_count = 3;
 
     if ((ret = avcodec_open2(decoder_ctx, decoder, NULL)) < 0) {

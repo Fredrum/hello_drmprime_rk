@@ -37,10 +37,14 @@
 #include "libavutil/hwcontext_drm.h"
 #include "libavutil/pixdesc.h"
 
+//fred
+#include "libdrm/drm_fourcc.h"
+//#include <linux/types.h>
 
 #define TRACE_ALL 0
 
-#define DRM_MODULE "vc4"
+//~ #define DRM_MODULE "vc4"
+#define DRM_MODULE "rockchip"
 
 #define ERRSTR strerror(errno)
 
@@ -118,7 +122,11 @@ static int find_plane(const int drmfd, const int crtcidx, const uint32_t format,
         }
 
         for (j = 0; j < plane->count_formats; ++j) {
-            if (plane->formats[j] == format) break;
+			//printf("counting format %d\n", j);
+            if (plane->formats[j] == format) {
+				printf("found matching plane format\n");
+				break;
+			} else printf("No matching plane format found\n");
         }
 
         if (j == plane->count_formats) {
@@ -161,7 +169,8 @@ static int do_display(drmprime_out_env_t *const de, AVFrame *frame)
 {
     const AVDRMFrameDescriptor *desc = (AVDRMFrameDescriptor *)frame->data[0];
     drm_aux_t *da = de->aux + de->ano;
-    const uint32_t format = desc->layers[0].format;
+    //~ const uint32_t format = desc->layers[0].format;
+    const uint32_t format = DRM_FORMAT_NV12;
     int ret = 0;
 
 #if TRACE_ALL
@@ -171,7 +180,7 @@ static int do_display(drmprime_out_env_t *const de, AVFrame *frame)
     if (de->setup.out_fourcc != format) {
         if (find_plane(de->drm_fd, de->setup.crtcIdx, format, &de->setup.planeId)) {
             av_frame_free(&frame);
-            fprintf(stderr, "No plane for format: %#x\n", format);
+            fprintf(stderr, "No plane for format: %#x\n", format); // here NV12?
             return -1;
         }
         de->setup.out_fourcc = format;
@@ -252,9 +261,10 @@ static int do_display(drmprime_out_env_t *const de, AVFrame *frame)
 #endif
 
         if (drmModeAddFB2WithModifiers(de->drm_fd,
-                                       av_frame_cropped_width(frame),
-                                       av_frame_cropped_height(frame),
-                                       desc->layers[0].format, bo_handles,
+                                       1920,
+                                       1080,
+                                       //desc->layers[0].format, bo_handles,
+                                       DRM_FORMAT_NV12, bo_handles,
                                        pitches, offsets, modifiers,
                                        &da->fb_handle, DRM_MODE_FB_MODIFIERS /** 0 if no mods */) != 0) {
             fprintf(stderr, "drmModeAddFB2WithModifiers failed: %s\n", ERRSTR);
@@ -268,8 +278,8 @@ static int do_display(drmprime_out_env_t *const de, AVFrame *frame)
                           de->setup.compose.width,
                           de->setup.compose.height,
                           0, 0,
-                          av_frame_cropped_width(frame) << 16,
-                          av_frame_cropped_height(frame) << 16);
+                          1920 << 16,
+                          1080 << 16);
 
     if (ret != 0) {
         fprintf(stderr, "drmModeSetPlane failed: %s\n", ERRSTR);
@@ -442,6 +452,7 @@ int drmprime_out_display(drmprime_out_env_t *de, struct AVFrame *src_frame)
         fprintf(stderr, "Discard corrupt frame: fmt=%d, ts=%" PRId64 "\n", src_frame->format, src_frame->pts);
         return 0;
     }
+    if (src_frame->format ==DRM_FORMAT_NV12) printf("apa\n");
 
     if (src_frame->format == AV_PIX_FMT_DRM_PRIME) {
         frame = av_frame_alloc();
